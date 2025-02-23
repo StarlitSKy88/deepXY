@@ -12,7 +12,7 @@ class DeepSeekClient(BaseClient):
     def __init__(
         self,
         api_key: str,
-        api_url: str = "https://api.siliconflow.cn/v1/chat/completions",
+        api_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
     ):
         """初始化 DeepSeek 客户端
 
@@ -139,7 +139,7 @@ class DeepSeekClient(BaseClient):
                                             logger.debug(f"推理内容结束：{content}")
                                             is_collecting_think = False
                                             yield "reasoning", content
-                                            # 输出空的 content 来触发 Claude 处理
+                                            # 输出空的 content 来触发下一阶段处理
                                             yield "content", ""
                                             # 重置累积内容
                                             accumulated_content = ""

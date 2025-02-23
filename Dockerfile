@@ -1,15 +1,27 @@
-# 使用 Python 3.11 slim 版本作为基础镜像
-FROM python:3.11-slim
+# 使用腾讯云镜像源作为基础镜像
+FROM ccr.ccs.tencentyun.com/library/python:3.11-slim as builder
 
 # 设置工作目录
 WORKDIR /app
 
 # 设置环境变量
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    TZ=Asia/Shanghai \
+    PIP_NO_CACHE_DIR=1 \
+    POETRY_VERSION=1.7.1
 
-# 安装依赖
-RUN pip install --no-cache-dir \
+# 安装系统依赖
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    curl \
+    gcc \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# 使用阿里云镜像源安装依赖
+RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
+    pip install --no-cache-dir \
     aiohttp==3.11.11 \
     colorlog==6.9.0 \
     fastapi==0.115.8 \
@@ -17,11 +29,39 @@ RUN pip install --no-cache-dir \
     tiktoken==0.8.0 \
     "uvicorn[standard]"
 
+# 使用多阶段构建，创建最终镜像
+FROM ccr.ccs.tencentyun.com/library/python:3.11-slim
+
+# 设置工作目录
+WORKDIR /app
+
+# 设置环境变量
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    TZ=Asia/Shanghai
+
+# 安装运行时依赖
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# 从构建阶段复制 Python 包
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+
+# 创建日志目录
+RUN mkdir -p /app/logs && \
+    chmod 777 /app/logs
+
 # 复制项目文件
 COPY ./app ./app
 
 # 暴露端口
 EXPOSE 8000
 
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/ || exit 1
+
 # 启动命令
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]

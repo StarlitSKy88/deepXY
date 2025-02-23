@@ -6,27 +6,30 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from app.deepclaude.deepclaude import DeepClaude
+from app.deepxy.deepxy import DeepXY
 from app.utils.auth import verify_api_key
 from app.utils.logger import logger
 
 # 加载环境变量
 load_dotenv()
 
-app = FastAPI(title="DeepClaude API")
+app = FastAPI(title="DeepXY API")
 
 # 从环境变量获取 CORS配置, API 密钥、地址以及模型名称
 ALLOW_ORIGINS = os.getenv("ALLOW_ORIGINS", "*")
 
-# 阿里百炼配置
-BAILIAN_API_KEY = os.getenv("BAILIAN_API_KEY")
-BAILIAN_API_URL = os.getenv("BAILIAN_API_URL", "https://bailian.aliyuncs.com/v2/app/completions")
+# DashScope 配置
+DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY")
+DASHSCOPE_API_URL = os.getenv("DASHSCOPE_API_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")
 
 # 模型配置
 DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-r1")
 QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen2.5-14b-instruct-1m")
 
 IS_ORIGIN_REASONING = os.getenv("IS_ORIGIN_REASONING", "True").lower() == "true"
+
+# 检查环境变量状态
+logger.info(f"DASHSCOPE_API_KEY环境变量状态: {'已设置' if DASHSCOPE_API_KEY else '未设置'}")
 
 # CORS设置
 allow_origins_list = ALLOW_ORIGINS.split(",") if ALLOW_ORIGINS else []
@@ -39,16 +42,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 创建 DeepClaude 实例
-if not BAILIAN_API_KEY:
-    logger.critical("请设置环境变量 BAILIAN_API_KEY")
+# 创建 DeepXY 实例
+if not DASHSCOPE_API_KEY:
+    logger.critical("请设置环境变量 DASHSCOPE_API_KEY")
     sys.exit(1)
 
-deep_claude = DeepClaude(
-    BAILIAN_API_KEY,
-    BAILIAN_API_KEY,
-    BAILIAN_API_URL,
-    BAILIAN_API_URL,
+deep_xy = DeepXY(
+    DASHSCOPE_API_KEY,
+    DASHSCOPE_API_KEY,
+    DASHSCOPE_API_URL,
+    DASHSCOPE_API_URL,
     IS_ORIGIN_REASONING,
 )
 
@@ -56,10 +59,10 @@ deep_claude = DeepClaude(
 logger.debug("当前日志级别为 DEBUG")
 logger.info("开始请求")
 
-@app.get("/", dependencies=[Depends(verify_api_key)])
+@app.get("/")
 async def root():
     logger.info("访问了根路径")
-    return {"message": "Welcome to DeepClaude API"}
+    return {"message": "Welcome to DeepXY API"}
 
 @app.get("/v1/models")
 async def list_models():
@@ -69,13 +72,13 @@ async def list_models():
     """
     models = [
         {
-            "id": "deepclaude",
+            "id": "deepxy",
             "object": "model",
             "created": 1677610602,
-            "owned_by": "deepclaude",
+            "owned_by": "deepxy",
             "permission": [
                 {
-                    "id": "modelperm-deepclaude",
+                    "id": "modelperm-deepxy",
                     "object": "model_permission",
                     "created": 1677610602,
                     "allow_create_engine": False,
@@ -89,14 +92,14 @@ async def list_models():
                     "is_blocking": False,
                 }
             ],
-            "root": "deepclaude",
+            "root": "deepxy",
             "parent": None,
         }
     ]
 
     return {"object": "list", "data": models}
 
-@app.post("/v1/chat/completions", dependencies=[Depends(verify_api_key)])
+@app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     """处理聊天完成请求，支持流式和非流式输出
 
@@ -126,7 +129,7 @@ async def chat_completions(request: Request):
         # 3. 根据 stream 参数返回相应的响应
         if stream:
             return StreamingResponse(
-                deep_claude.chat_completions_with_stream(
+                deep_xy.chat_completions_with_stream(
                     messages=messages,
                     model_arg=model_arg[:4],  # 不传递 stream 参数
                     deepseek_model=DEEPSEEK_MODEL,
@@ -136,7 +139,7 @@ async def chat_completions(request: Request):
             )
         else:
             # 非流式输出
-            response = await deep_claude.chat_completions_without_stream(
+            response = await deep_xy.chat_completions_without_stream(
                 messages=messages,
                 model_arg=model_arg[:4],  # 不传递 stream 参数
                 deepseek_model=DEEPSEEK_MODEL,

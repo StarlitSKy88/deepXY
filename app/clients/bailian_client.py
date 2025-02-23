@@ -10,7 +10,7 @@ class BaiLianClient(BaseClient):
     def __init__(
         self,
         api_key: str,
-        api_url: str = "https://bailian.aliyuncs.com/v2/app/completions",
+        api_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
     ):
         """初始化阿里百炼客户端
 
@@ -51,15 +51,22 @@ class BaiLianClient(BaseClient):
             "model": model,
             "messages": messages,
             "stream": True,
-            "incremental_output": True
+            "result_format": "message",
+            "parameters": {
+                "temperature": 0.7,
+                "top_p": 0.95,
+                "top_k": 40,
+                "repetition_penalty": 1.0,
+                "enable_search": False
+            }
         }
 
-        # 3. 发送请求并处理响应
-        accumulated_content = ""
-        is_collecting_think = False
+        logger.debug(f"发送请求到 {self.api_url}，请求体：{request_body}")
 
+        # 3. 发送请求并处理响应
         async for chunk in self._make_request(headers, request_body, self.api_url):
             chunk_str = chunk.decode("utf-8")
+            logger.debug(f"收到响应：{chunk_str}")
 
             try:
                 lines = chunk_str.splitlines()
@@ -70,28 +77,15 @@ class BaiLianClient(BaseClient):
                             return
 
                         data = json.loads(json_str)
-                        if data and data.get("output"):
-                            content = data["output"].get("text", "")
-                            
-                            if is_origin_reasoning:
-                                # 处理原生推理内容
-                                if "<think>" in content and not is_collecting_think:
-                                    is_collecting_think = True
-                                    yield "reasoning", content
-                                elif is_collecting_think:
-                                    if "</think>" in content:
-                                        is_collecting_think = False
-                                        yield "reasoning", content
-                                        yield "content", ""
-                                    else:
-                                        yield "reasoning", content
-                                else:
-                                    yield "content", content
-                            else:
-                                # 直接输出内容
-                                yield "content", content
+                        if data.get("output") and data["output"].get("choices"):
+                            choice = data["output"]["choices"][0]
+                            if choice.get("message"):
+                                if choice["message"].get("reasoning_content"):
+                                    yield "reasoning", choice["message"]["reasoning_content"]
+                                if choice["message"].get("content"):
+                                    yield "content", choice["message"]["content"]
 
             except json.JSONDecodeError as e:
                 logger.error(f"JSON 解析错误: {e}")
             except Exception as e:
-                logger.error(f"处理响应时发生错误: {e}") 
+                logger.error(f"处理响应时发生错误: {e}")

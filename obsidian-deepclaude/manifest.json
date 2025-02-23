@@ -1,0 +1,10 @@
+{
+	"id": "obsidian-deepclaude",
+	"name": "DeepClaude",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "DeepClaude integration for Obsidian",
+	"author": "ErlichLiu",
+	"authorUrl": "https://github.com/ErlichLiu",
+	"isDesktopOnly": false
+}

@@ -1,25 +1,81 @@
-"""DeepClaude 服务，用于协调阿里百炼的 DeepSeek 和 Qwen 模型的调用"""
+"""DeepClaude 服务，用于协调 DeepSeek 和 Qwen 模型的调用"""
 
 import asyncio
 import json
 import time
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Tuple
 
-import tiktoken
-
-from app.clients import BaiLianClient, QwenClient
+from app.clients import DeepSeekClient, QwenClient
 from app.utils.logger import logger
 
 
 class DeepClaude:
-    """处理阿里百炼的 DeepSeek 和 Qwen 模型的流式输出衔接"""
+    """处理 DeepSeek 和 Qwen 模型的流式输出衔接"""
+
+    # 不同模型的提示词模板
+    PROMPT_TEMPLATES = {
+        "default": """
+Here's my original input:
+{original_content}
+
+Here's my another model's reasoning process:
+{reasoning}
+
+Based on this reasoning, provide your response directly to me:""",
+        
+        "google/": """
+Original Query:
+{original_content}
+
+Reasoning Analysis:
+{reasoning}
+
+Instructions: Based on the above reasoning, generate a comprehensive response. Focus on accuracy and clarity.""",
+        
+        "anthropic/": """
+[Previous Analysis]
+{reasoning}
+
+[Original Query]
+{original_content}
+
+[Task]
+Using the above analysis, provide a detailed and well-structured response. Maintain a professional tone and ensure factual accuracy.""",
+        
+        "qwen": """
+原始问题：
+{original_content}
+
+推理过程：
+{reasoning}
+
+请基于以上推理过程，给出完整的回答。注意保持语言的流畅性和专业性。""",
+        
+        "meta/": """
+Input: {original_content}
+
+Reasoning:
+{reasoning}
+
+Task: Synthesize the above reasoning into a coherent response. Prioritize clarity and logical flow.""",
+        
+        "mistral/": """
+Context:
+- Original query: {original_content}
+- Reasoning provided: {reasoning}
+
+Generate a response that:
+1. Incorporates the reasoning insights
+2. Addresses the original query directly
+3. Maintains a clear and concise style""",
+    }
 
     def __init__(
         self,
         deepseek_api_key: str,
         qwen_api_key: str,
-        deepseek_api_url: str = "https://bailian.aliyuncs.com/v2/app/completions",
-        qwen_api_url: str = "https://bailian.aliyuncs.com/v2/app/completions",
+        deepseek_api_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+        qwen_api_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
         is_origin_reasoning: bool = True,
     ):
         """初始化 API 客户端
@@ -31,7 +87,7 @@ class DeepClaude:
             qwen_api_url: Qwen API地址
             is_origin_reasoning: 是否使用原生推理
         """
-        self.deepseek_client = BaiLianClient(
+        self.deepseek_client = DeepSeekClient(
             deepseek_api_key, deepseek_api_url
         )
         self.qwen_client = QwenClient(
@@ -39,10 +95,48 @@ class DeepClaude:
         )
         self.is_origin_reasoning = is_origin_reasoning
 
+    def _get_prompt_template(self, model: str) -> str:
+        """根据模型名称获取对应的提示词模板
+
+        Args:
+            model: 模型名称
+
+        Returns:
+            str: 提示词模板
+        """
+        # 检查是否是特定模型
+        for prefix in self.PROMPT_TEMPLATES:
+            if model.startswith(prefix):
+                return self.PROMPT_TEMPLATES[prefix]
+        
+        # 如果是通义千问模型
+        if "qwen" in model.lower():
+            return self.PROMPT_TEMPLATES["qwen"]
+        
+        # 默认模板
+        return self.PROMPT_TEMPLATES["default"]
+
+    def _format_prompt(self, model: str, original_content: str, reasoning: str) -> str:
+        """格式化提示词
+
+        Args:
+            model: 模型名称
+            original_content: 原始内容
+            reasoning: 推理内容
+
+        Returns:
+            str: 格式化后的提示词
+        """
+        template = self._get_prompt_template(model)
+        return template.format(
+            original_content=original_content,
+            reasoning=reasoning
+        )
+
     async def chat_completions_with_stream(
         self,
         messages: list,
-        model_arg: tuple[float, float, float, float],
+        model_arg: Tuple[float, float, float, float],
         deepseek_model: str = "deepseek-r1",
         qwen_model: str = "qwen2.5-14b-instruct-1m",
     ) -> AsyncGenerator[bytes, None]:
@@ -86,8 +180,9 @@ class DeepClaude:
         async def process_deepseek():
             logger.info(f"开始处理 DeepSeek 流，使用模型：{deepseek_model}")
             try:
+                deepseek_messages = messages.copy()
                 async for content_type, content in self.deepseek_client.stream_chat(
-                    messages, deepseek_model, self.is_origin_reasoning
+                    deepseek_messages, deepseek_model, self.is_origin_reasoning
                 ):
                     if content_type == "reasoning":
                         reasoning_content.append(content)
@@ -115,11 +210,11 @@ class DeepClaude:
                         logger.info(
                             f"DeepSeek 推理完成，收集到的推理内容长度：{len(''.join(reasoning_content))}"
                         )
-                        await qwen_queue.put("".join(reasoning_content))
+                        await qwen_queue.put(("".join(reasoning_content), content))
                         break
             except Exception as e:
                 logger.error(f"处理 DeepSeek 流时发生错误: {e}")
-                await qwen_queue.put("")
+                await qwen_queue.put(("", ""))
             # 用 None 标记 DeepSeek 任务结束
             logger.info("DeepSeek 任务处理完成，标记结束")
             await output_queue.put(None)
@@ -127,7 +222,7 @@ class DeepClaude:
         async def process_qwen():
             try:
                 logger.info("等待获取 DeepSeek 的推理内容...")
-                reasoning = await qwen_queue.get()
+                reasoning, deepseek_content = await qwen_queue.get()
                 logger.debug(
                     f"获取到推理内容，内容长度：{len(reasoning) if reasoning else 0}"
                 )
@@ -137,10 +232,7 @@ class DeepClaude:
 
                 # 构造 Qwen 的输入消息
                 qwen_messages = messages.copy()
-                combined_content = f"""
-                Here's my another model's reasoning process:\n{reasoning}\n\n
-                Based on this reasoning, provide your response directly to me:"""
-
+                
                 # 处理可能 messages 内存在 role = system 的情况
                 qwen_messages = [
                     message
@@ -152,20 +244,39 @@ class DeepClaude:
                 if not qwen_messages:
                     raise ValueError("消息列表为空，无法处理 Qwen 请求")
 
-                # 获取最后一个消息并检查其角色
-                last_message = qwen_messages[-1]
-                if last_message.get("role", "") != "user":
-                    raise ValueError("最后一个消息的角色不是用户，无法处理请求")
+                # 获取最后一个用户消息的内容
+                last_user_message = None
+                for message in reversed(qwen_messages):
+                    if message.get("role") == "user":
+                        last_user_message = message
+                        break
 
-                # 修改最后一个消息的内容
-                original_content = last_message["content"]
-                fixed_content = f"Here's my original input:\n{original_content}\n\n{combined_content}"
-                last_message["content"] = fixed_content
+                if not last_user_message:
+                    raise ValueError("未找到用户消息，无法处理请求")
+
+                # 修改最后一个用户消息的内容
+                original_content = last_user_message["content"]
+                fixed_content = self._format_prompt(qwen_model, original_content, reasoning)
+                
+                # 创建新的消息列表，确保最后一个消息是用户消息
+                new_messages = []
+                for message in qwen_messages:
+                    if message == last_user_message:
+                        continue
+                    new_messages.append(message)
+                
+                # 添加DeepSeek的回答（如果有）
+                if deepseek_content:
+                    new_messages.append({'role': 'assistant', 'content': deepseek_content})
+                
+                # 添加修改后的用户消息作为最后一条消息
+                new_messages.append({'role': 'user', 'content': fixed_content})
 
                 logger.info(f"开始处理 Qwen 流，使用模型: {qwen_model}")
+                logger.debug(f"Qwen 消息列表: {new_messages}")
 
                 async for content_type, content in self.qwen_client.stream_chat(
-                    messages=qwen_messages,
+                    messages=new_messages,
                     model_arg=model_arg,
                     model=qwen_model,
                 ):
@@ -178,7 +289,11 @@ class DeepClaude:
                             "choices": [
                                 {
                                     "index": 0,
-                                    "delta": {"role": "assistant", "content": content},
+                                    "delta": {
+                                        "role": "assistant",
+                                        "content": content,
+                                        "reasoning_content": "",
+                                    },
                                 }
                             ],
                         }
@@ -187,6 +302,7 @@ class DeepClaude:
                         )
             except Exception as e:
                 logger.error(f"处理 Qwen 流时发生错误: {e}")
+                logger.exception(e)  # 打印完整的错误堆栈
             # 用 None 标记 Qwen 任务结束
             logger.info("Qwen 任务处理完成，标记结束")
             await output_queue.put(None)
@@ -228,15 +344,18 @@ class DeepClaude:
         chat_id = f"chatcmpl-{hex(int(time.time() * 1000))[2:]}"
         created_time = int(time.time())
         reasoning_content = []
+        deepseek_content = ""
 
         # 1. 获取 DeepSeek 的推理内容（仍然使用流式）
         try:
+            deepseek_messages = messages.copy()
             async for content_type, content in self.deepseek_client.stream_chat(
-                messages, deepseek_model, self.is_origin_reasoning
+                deepseek_messages, deepseek_model, self.is_origin_reasoning
             ):
                 if content_type == "reasoning":
                     reasoning_content.append(content)
                 elif content_type == "content":
+                    deepseek_content = content
                     break
         except Exception as e:
             logger.error(f"获取 DeepSeek 推理内容时发生错误: {e}")
@@ -245,10 +364,8 @@ class DeepClaude:
         # 2. 构造 Qwen 的输入消息
         reasoning = "".join(reasoning_content)
         qwen_messages = messages.copy()
-
-        combined_content = f"""
-            Here's my another model's reasoning process:\n{reasoning}\n\n
-            Based on this reasoning, provide your response directly to me:"""
+        if deepseek_content:
+            qwen_messages.append({'role': 'assistant', 'content': deepseek_content})
 
         # 处理可能 messages 内存在 role = system 的情况
         qwen_messages = [
@@ -268,7 +385,7 @@ class DeepClaude:
 
         # 修改最后一个消息的内容
         original_content = last_message["content"]
-        fixed_content = f"Here's my original input:\n{original_content}\n\n{combined_content}"
+        fixed_content = self._format_prompt(qwen_model, original_content, reasoning)
         last_message["content"] = fixed_content
 
         # 3. 获取 Qwen 的回答

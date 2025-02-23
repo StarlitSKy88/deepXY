@@ -37,13 +37,14 @@ class BaseClient(ABC):
         self.timeout = timeout or self.DEFAULT_TIMEOUT
 
     async def _make_request(
-        self, headers: dict, data: dict, timeout: Optional[aiohttp.ClientTimeout] = None
+        self, headers: dict, data: dict, api_url: Optional[str] = None, timeout: Optional[aiohttp.ClientTimeout] = None
     ) -> AsyncGenerator[bytes, None]:
         """发送请求并处理响应
 
         Args:
             headers: 请求头
             data: 请求数据
+            api_url: 自定义API地址，如果为None则使用实例默认值
             timeout: 当前请求的超时设置,None则使用实例默认值
 
         Yields:
@@ -55,13 +56,19 @@ class BaseClient(ABC):
             Exception: 其他异常
         """
         request_timeout = timeout or self.timeout
+        target_url = api_url or self.api_url
 
         try:
-            # 使用 connector 参数来优化连接池
-            connector = aiohttp.TCPConnector(limit=100, force_close=True)
+            # 使用 connector 参数来优化连接池，禁用 SSL 验证
+            connector = aiohttp.TCPConnector(
+                limit=100, 
+                force_close=True,
+                ssl=False  # 禁用 SSL 验证
+            )
+            
             async with aiohttp.ClientSession(connector=connector) as session:
                 async with session.post(
-                    self.api_url, headers=headers, json=data, timeout=request_timeout
+                    target_url, headers=headers, json=data, timeout=request_timeout
                 ) as response:
                     # 检查响应状态
                     if not response.ok:
