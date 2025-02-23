@@ -1,7 +1,6 @@
-version: '3.8'
-
 services:
   deepxy:
+    image: ghcr.io/starlitsky88/deepxy:latest
     build: 
       context: .
       dockerfile: Dockerfile
