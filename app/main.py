@@ -19,10 +19,8 @@ app = FastAPI(title="DeepClaude API")
 ALLOW_ORIGINS = os.getenv("ALLOW_ORIGINS", "*")
 
 # 阿里百炼配置
-ALIYUN_ACCESS_KEY_ID = os.getenv("ALIYUN_ACCESS_KEY_ID")
-ALIYUN_ACCESS_KEY_SECRET = os.getenv("ALIYUN_ACCESS_KEY_SECRET")
-ALIYUN_API_URL = os.getenv("ALIYUN_API_URL", "https://bailian.aliyuncs.com/v2/app/completions")
-ALIYUN_AGENT_KEY = os.getenv("ALIYUN_AGENT_KEY")
+BAILIAN_API_KEY = os.getenv("BAILIAN_API_KEY")
+BAILIAN_API_URL = os.getenv("BAILIAN_API_URL", "https://bailian.aliyuncs.com/v2/app/completions")
 
 # 模型配置
 DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-r1")
@@ -42,16 +40,15 @@ app.add_middleware(
 )
 
 # 创建 DeepClaude 实例
-if not ALIYUN_ACCESS_KEY_ID or not ALIYUN_ACCESS_KEY_SECRET:
-    logger.critical("请设置环境变量 ALIYUN_ACCESS_KEY_ID 和 ALIYUN_ACCESS_KEY_SECRET")
+if not BAILIAN_API_KEY:
+    logger.critical("请设置环境变量 BAILIAN_API_KEY")
     sys.exit(1)
 
 deep_claude = DeepClaude(
-    ALIYUN_ACCESS_KEY_ID,
-    ALIYUN_ACCESS_KEY_SECRET,
-    ALIYUN_API_URL,
-    ALIYUN_API_URL,
-    ALIYUN_AGENT_KEY,
+    BAILIAN_API_KEY,
+    BAILIAN_API_KEY,
+    BAILIAN_API_URL,
+    BAILIAN_API_URL,
     IS_ORIGIN_REASONING,
 )
 

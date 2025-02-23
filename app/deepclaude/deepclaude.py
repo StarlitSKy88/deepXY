@@ -16,28 +16,26 @@ class DeepClaude:
 
     def __init__(
         self,
-        access_key_id: str,
-        access_key_secret: str,
+        deepseek_api_key: str,
+        qwen_api_key: str,
         deepseek_api_url: str = "https://bailian.aliyuncs.com/v2/app/completions",
         qwen_api_url: str = "https://bailian.aliyuncs.com/v2/app/completions",
-        agent_key: str = None,
         is_origin_reasoning: bool = True,
     ):
         """初始化 API 客户端
 
         Args:
-            access_key_id: 阿里云 AccessKey ID
-            access_key_secret: 阿里云 AccessKey Secret
+            deepseek_api_key: DeepSeek API Key
+            qwen_api_key: Qwen API Key
             deepseek_api_url: DeepSeek API地址
             qwen_api_url: Qwen API地址
-            agent_key: 应用 Key
             is_origin_reasoning: 是否使用原生推理
         """
         self.deepseek_client = BaiLianClient(
-            access_key_id, access_key_secret, deepseek_api_url, agent_key
+            deepseek_api_key, deepseek_api_url
         )
         self.qwen_client = QwenClient(
-            access_key_id, access_key_secret, qwen_api_url, agent_key
+            qwen_api_key, qwen_api_url
         )
         self.is_origin_reasoning = is_origin_reasoning
 

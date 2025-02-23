@@ -3,65 +3,23 @@
 import json
 from typing import AsyncGenerator
 import time
-import hmac
-import base64
-import uuid
-import hashlib
-from urllib.parse import urlencode
-
 from app.utils.logger import logger
 from .base_client import BaseClient
 
 class QwenClient(BaseClient):
     def __init__(
         self,
-        access_key_id: str,
-        access_key_secret: str,
+        api_key: str,
         api_url: str = "https://bailian.aliyuncs.com/v2/app/completions",
-        agent_key: str = None,
     ):
         """初始化阿里百炼 Qwen 客户端
 
         Args:
-            access_key_id: 阿里云 AccessKey ID
-            access_key_secret: 阿里云 AccessKey Secret
+            api_key: 阿里百炼 API Key
             api_url: API地址
-            agent_key: 应用 Key
         """
-        self.access_key_id = access_key_id
-        self.access_key_secret = access_key_secret
+        self.api_key = api_key
         self.api_url = api_url
-        self.agent_key = agent_key
-
-    def _generate_signature(self, params):
-        """生成签名"""
-        # 1. 按照参数名称的字典顺序排序
-        sorted_params = sorted(params.items())
-        
-        # 2. 将参数名称和参数值用 = 连接，并用 & 连接所有参数
-        canonicalized_query_string = "&".join(f"{k}={v}" for k, v in sorted_params)
-        
-        # 3. 计算签名
-        string_to_sign = canonicalized_query_string.encode('utf-8')
-        secret = self.access_key_secret.encode('utf-8')
-        signature = base64.b64encode(
-            hmac.new(secret, string_to_sign, hashlib.sha1).digest()
-        ).decode('utf-8')
-        
-        return signature
-
-    def _get_common_params(self):
-        """获取公共参数"""
-        params = {
-            "AccessKeyId": self.access_key_id,
-            "Format": "JSON",
-            "SignatureMethod": "HMAC-SHA1",
-            "SignatureVersion": "1.0",
-            "Version": "2023-06-01",
-            "Timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "SignatureNonce": str(uuid.uuid4()),
-        }
-        return params
 
     async def stream_chat(
         self,
@@ -81,44 +39,28 @@ class QwenClient(BaseClient):
                 内容类型: "answer"
                 内容: 实际的文本内容
         """
-        # 1. 准备请求参数
-        params = self._get_common_params()
+        # 1. 准备请求头
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "Authorization": f"Bearer {self.api_key}"
+        }
         
         # 2. 准备请求体
         temperature, top_p, presence_penalty, frequency_penalty = model_arg
         request_body = {
             "model": model,
-            "input": {
-                "messages": messages
-            },
-            "parameters": {
-                "stream": True,
-                "incremental_output": True,
-                "temperature": temperature,
-                "top_p": top_p,
-                "presence_penalty": presence_penalty,
-                "frequency_penalty": frequency_penalty
-            }
-        }
-        
-        if self.agent_key:
-            request_body["agent_key"] = self.agent_key
-
-        # 3. 生成签名
-        signature = self._generate_signature(params)
-        params["Signature"] = signature
-
-        # 4. 构建完整的URL
-        url = f"{self.api_url}?{urlencode(params)}"
-
-        # 5. 准备请求头
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "text/event-stream",
+            "messages": messages,
+            "stream": True,
+            "incremental_output": True,
+            "temperature": temperature,
+            "top_p": top_p,
+            "presence_penalty": presence_penalty,
+            "frequency_penalty": frequency_penalty
         }
 
-        # 6. 发送请求并处理响应
-        async for chunk in self._make_request(headers, request_body, url):
+        # 3. 发送请求并处理响应
+        async for chunk in self._make_request(headers, request_body, self.api_url):
             chunk_str = chunk.decode("utf-8")
 
             try:
