@@ -1,5 +1,5 @@
-# 使用腾讯云镜像源
-FROM ccr.ccs.tencentyun.com/library/python:3.11-slim as builder
+# 使用官方镜像
+FROM python:3.11-slim AS builder
 
 # 设置工作目录
 WORKDIR /app
@@ -9,7 +9,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     TZ=Asia/Shanghai \
     PIP_NO_CACHE_DIR=1 \
-    PATH="/root/.local/bin:$PATH"
+    PATH="/usr/local/bin:$PATH"
 
 # 安装系统依赖
 RUN apt-get update && \
@@ -19,8 +19,8 @@ RUN apt-get update && \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# 使用阿里云 PyPI 镜像源安装依赖
-RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
+# 使用清华大学 PyPI 镜像源安装依赖
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
     pip install --no-cache-dir \
     aiohttp==3.11.11 \
     colorlog==6.9.0 \
@@ -30,7 +30,7 @@ RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
     "uvicorn[standard]"
 
 # 使用多阶段构建，创建最终镜像
-FROM ccr.ccs.tencentyun.com/library/python:3.11-slim
+FROM python:3.11-slim
 
 # 设置工作目录
 WORKDIR /app
@@ -39,7 +39,7 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     TZ=Asia/Shanghai \
-    PATH="/root/.local/bin:$PATH"
+    PATH="/usr/local/bin:$PATH"
 
 # 安装运行时依赖
 RUN apt-get update && \
