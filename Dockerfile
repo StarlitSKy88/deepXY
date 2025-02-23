@@ -1,5 +1,5 @@
-# 使用官方镜像
-FROM python:3.11-slim as builder
+# 使用阿里云镜像源
+FROM registry.cn-hangzhou.aliyuncs.com/library/python:3.11-slim as builder
 
 # 设置工作目录
 WORKDIR /app
@@ -19,8 +19,9 @@ RUN apt-get update && \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装 Python 依赖
-RUN pip install --no-cache-dir \
+# 使用阿里云 PyPI 镜像源安装依赖
+RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
+    pip install --no-cache-dir \
     aiohttp==3.11.11 \
     colorlog==6.9.0 \
     fastapi==0.115.8 \
@@ -29,7 +30,7 @@ RUN pip install --no-cache-dir \
     "uvicorn[standard]"
 
 # 使用多阶段构建，创建最终镜像
-FROM python:3.11-slim
+FROM registry.cn-hangzhou.aliyuncs.com/library/python:3.11-slim
 
 # 设置工作目录
 WORKDIR /app
