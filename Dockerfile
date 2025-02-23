@@ -9,7 +9,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     TZ=Asia/Shanghai \
     PIP_NO_CACHE_DIR=1 \
-    POETRY_VERSION=1.7.1
+    PATH="/root/.local/bin:$PATH"
 
 # 安装系统依赖
 RUN apt-get update && \
@@ -37,7 +37,8 @@ WORKDIR /app
 # 设置环境变量
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    TZ=Asia/Shanghai
+    TZ=Asia/Shanghai \
+    PATH="/root/.local/bin:$PATH"
 
 # 安装运行时依赖
 RUN apt-get update && \
@@ -47,6 +48,7 @@ RUN apt-get update && \
 
 # 从构建阶段复制 Python 包
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin/uvicorn /usr/local/bin/uvicorn
 
 # 创建日志目录
 RUN mkdir -p /app/logs && \
