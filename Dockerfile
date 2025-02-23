@@ -1,5 +1,5 @@
-# 使用阿里云镜像源
-FROM registry.cn-hangzhou.aliyuncs.com/library/python:3.11-slim as builder
+# 使用腾讯云镜像源
+FROM ccr.ccs.tencentyun.com/library/python:3.11-slim as builder
 
 # 设置工作目录
 WORKDIR /app
@@ -30,7 +30,7 @@ RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
     "uvicorn[standard]"
 
 # 使用多阶段构建，创建最终镜像
-FROM registry.cn-hangzhou.aliyuncs.com/library/python:3.11-slim
+FROM ccr.ccs.tencentyun.com/library/python:3.11-slim
 
 # 设置工作目录
 WORKDIR /app
