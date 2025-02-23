@@ -18,25 +18,20 @@ app = FastAPI(title="DeepClaude API")
 # 从环境变量获取 CORS配置, API 密钥、地址以及模型名称
 ALLOW_ORIGINS = os.getenv("ALLOW_ORIGINS", "*")
 
-CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
-ENV_CLAUDE_MODEL = os.getenv("CLAUDE_MODEL")
-CLAUDE_PROVIDER = os.getenv(
-    "CLAUDE_PROVIDER", "anthropic"
-)  # Claude模型提供商, 默认为anthropic
-CLAUDE_API_URL = os.getenv("CLAUDE_API_URL", "https://api.anthropic.com/v1/messages")
+# 阿里百炼配置
+ALIYUN_ACCESS_KEY_ID = os.getenv("ALIYUN_ACCESS_KEY_ID")
+ALIYUN_ACCESS_KEY_SECRET = os.getenv("ALIYUN_ACCESS_KEY_SECRET")
+ALIYUN_API_URL = os.getenv("ALIYUN_API_URL", "https://bailian.aliyuncs.com/v2/app/completions")
+ALIYUN_AGENT_KEY = os.getenv("ALIYUN_AGENT_KEY")
 
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-DEEPSEEK_API_URL = os.getenv(
-    "DEEPSEEK_API_URL", "https://api.deepseek.com/v1/chat/completions"
-)
-DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-reasoner")
+# 模型配置
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-r1")
+QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen2.5-14b-instruct-1m")
 
 IS_ORIGIN_REASONING = os.getenv("IS_ORIGIN_REASONING", "True").lower() == "true"
 
 # CORS设置
-allow_origins_list = (
-    ALLOW_ORIGINS.split(",") if ALLOW_ORIGINS else []
-)  # 将逗号分隔的字符串转换为列表
+allow_origins_list = ALLOW_ORIGINS.split(",") if ALLOW_ORIGINS else []
 
 app.add_middleware(
     CORSMiddleware,
@@ -46,17 +41,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 创建 DeepClaude 实例, 提出为Global变量
-if not DEEPSEEK_API_KEY or not CLAUDE_API_KEY:
-    logger.critical("请设置环境变量 CLAUDE_API_KEY 和 DEEPSEEK_API_KEY")
+# 创建 DeepClaude 实例
+if not ALIYUN_ACCESS_KEY_ID or not ALIYUN_ACCESS_KEY_SECRET:
+    logger.critical("请设置环境变量 ALIYUN_ACCESS_KEY_ID 和 ALIYUN_ACCESS_KEY_SECRET")
     sys.exit(1)
 
 deep_claude = DeepClaude(
-    DEEPSEEK_API_KEY,
-    CLAUDE_API_KEY,
-    DEEPSEEK_API_URL,
-    CLAUDE_API_URL,
-    CLAUDE_PROVIDER,
+    ALIYUN_ACCESS_KEY_ID,
+    ALIYUN_ACCESS_KEY_SECRET,
+    ALIYUN_API_URL,
+    ALIYUN_API_URL,
+    ALIYUN_AGENT_KEY,
     IS_ORIGIN_REASONING,
 )
 
@@ -64,12 +59,10 @@ deep_claude = DeepClaude(
 logger.debug("当前日志级别为 DEBUG")
 logger.info("开始请求")
 
-
 @app.get("/", dependencies=[Depends(verify_api_key)])
 async def root():
     logger.info("访问了根路径")
     return {"message": "Welcome to DeepClaude API"}
-
 
 @app.get("/v1/models")
 async def list_models():
@@ -106,7 +99,6 @@ async def list_models():
 
     return {"object": "list", "data": models}
 
-
 @app.post("/v1/chat/completions", dependencies=[Depends(verify_api_key)])
 async def chat_completions(request: Request):
     """处理聊天完成请求，支持流式和非流式输出
@@ -126,9 +118,9 @@ async def chat_completions(request: Request):
         body = await request.json()
         messages = body.get("messages")
 
-        # 获取模型id, 判断是否使用请求体中的模型id, 否则使用环境变量中的模型id
-        body_claude_model = body.get("model", "claude-3-5-sonnet-20241022")
-        claude_model = ENV_CLAUDE_MODEL if ENV_CLAUDE_MODEL != "" else body_claude_model
+        # 获取模型id
+        body_model = body.get("model", "qwen2.5-14b-instruct-1m")
+        qwen_model = QWEN_MODEL if QWEN_MODEL != "" else body_model
 
         # 2. 获取并验证参数
         model_arg = get_and_validate_params(body)
@@ -141,9 +133,7 @@ async def chat_completions(request: Request):
                     messages=messages,
                     model_arg=model_arg[:4],  # 不传递 stream 参数
                     deepseek_model=DEEPSEEK_MODEL,
-                    claude_model=claude_model
-                    if claude_model
-                    else "claude-3-5-sonnet-20241022",
+                    qwen_model=qwen_model,
                 ),
                 media_type="text/event-stream",
             )
@@ -153,9 +143,7 @@ async def chat_completions(request: Request):
                 messages=messages,
                 model_arg=model_arg[:4],  # 不传递 stream 参数
                 deepseek_model=DEEPSEEK_MODEL,
-                claude_model=claude_model
-                if claude_model
-                else "claude-3-5-sonnet-20241022",
+                qwen_model=qwen_model,
             )
             return response
 
@@ -163,24 +151,16 @@ async def chat_completions(request: Request):
         logger.error(f"处理请求时发生错误: {e}")
         return {"error": str(e)}
 
-
 def get_and_validate_params(body):
     """提取获取和验证请求参数的函数"""
-    # TODO: 默认值设定允许自定义
-    temperature: float = body.get("temperature", 0.5)
-    top_p: float = body.get("top_p", 0.9)
+    temperature: float = body.get("temperature", 0.7)
+    top_p: float = body.get("top_p", 0.95)
     presence_penalty: float = body.get("presence_penalty", 0.0)
     frequency_penalty: float = body.get("frequency_penalty", 0.0)
     stream: bool = body.get("stream", True)
 
-    if "sonnet" in body.get(
-        "model", ""
-    ):  # Only Sonnet 设定 temperature 必须在 0 到 1 之间
-        if (
-            not isinstance(temperature, (float))
-            or temperature < 0.0
-            or temperature > 1.0
-        ):
-            raise ValueError("Sonnet 设定 temperature 必须在 0 到 1 之间")
+    # 验证温度参数
+    if not isinstance(temperature, (float)) or temperature < 0.0 or temperature > 1.0:
+        raise ValueError("temperature 必须在 0 到 1 之间")
 
     return (temperature, top_p, presence_penalty, frequency_penalty, stream)
