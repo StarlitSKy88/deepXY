@@ -1,4 +1,4 @@
-# 使用官方镜像
+# 使用官方 Python 镜像
 FROM python:3.11-slim AS builder
 
 # 设置工作目录
@@ -19,15 +19,11 @@ RUN apt-get update && \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# 使用清华大学 PyPI 镜像源安装依赖
-RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
-    pip install --no-cache-dir \
-    aiohttp==3.11.11 \
-    colorlog==6.9.0 \
-    fastapi==0.115.8 \
-    python-dotenv==1.0.1 \
-    tiktoken==0.8.0 \
-    "uvicorn[standard]"
+# 复制依赖文件
+COPY requirements.txt .
+
+# 安装 Python 依赖
+RUN pip install --no-cache-dir -r requirements.txt
 
 # 使用多阶段构建，创建最终镜像
 FROM python:3.11-slim
@@ -45,11 +41,11 @@ ENV PYTHONUNBUFFERED=1 \
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* && \
+    pip install --no-cache-dir "uvicorn[standard]"
 
 # 从构建阶段复制 Python 包
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=builder /usr/local/bin/uvicorn /usr/local/bin/uvicorn
 
 # 创建日志目录
 RUN mkdir -p /app/logs && \
@@ -57,13 +53,14 @@ RUN mkdir -p /app/logs && \
 
 # 复制项目文件
 COPY ./app ./app
+COPY ./requirements.txt .
 
 # 暴露端口
 EXPOSE 8000
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/ || exit 1
+    CMD curl -f http://localhost:8000/health || exit 1
 
 # 启动命令
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
